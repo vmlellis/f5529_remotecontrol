@@ -24,8 +24,8 @@
 #define STOP_FUNC_MOTOR 725			// Pulso para parada do motor
 #define MIN_FUNC_MOTOR 800			// Pulso minimo para o arranque do motor
 #define MAX_FUNC_MOTOR 1800			// Pulso máximo para o funcionamento do motor (Não definido o máximo do motor para evitar desgaste)
-#define MAX_PULSE_ESC 2000			// Pulso maximo para o ESC
-#define MIN_PULSE_ESC 700			// Pulso minimo para o ESC
+#define MAX_PULSE_ESC 2100			// Pulso maximo para o ESC
+#define MIN_PULSE_ESC 650			// Pulso minimo para o ESC
 
 /* Definição para o RELE 1 - P8.1 */
 #define RELE1SEL P8SEL

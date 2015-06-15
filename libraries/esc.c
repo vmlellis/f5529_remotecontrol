@@ -73,18 +73,18 @@ void esc_timer(void) {
 	if (esc_counter >= 0) {
 		switch (esc_counter)
 		{
-		case 0:
-			ESC1OUT &= ~ESC1BIT; // PINO ESC 1 - HIGH
-			break;
-		case 1:
-			ESC2OUT &= ~ESC2BIT; // PINO ESC 2 - HIGH
-			break;
-		case 2:
-			ESC3OUT &= ~ESC3BIT; // PINO ESC 3 - HIGH
-			break;
-		case 3:
-			ESC4OUT &= ~ESC4BIT; // PINO ESC 4 - HIGH
-			break;
+			case 0:
+				ESC1OUT &= ~ESC1BIT; // PINO ESC 1 - LOW
+				break;
+			case 1:
+				ESC2OUT &= ~ESC2BIT; // PINO ESC 2 - LOW
+				break;
+			case 2:
+				ESC3OUT &= ~ESC3BIT; // PINO ESC 3 - LOW
+				break;
+			case 3:
+				ESC4OUT &= ~ESC4BIT; // PINO ESC 4 - LOW
+				break;
 		}
 	}
 
@@ -93,16 +93,16 @@ void esc_timer(void) {
 	if (esc_counter < 4) {
 		switch (esc_counter) {
 			case 0:
-				ESC1OUT |= ESC1BIT; // PINO ESC 1 - LOW
+				ESC1OUT |= ESC1BIT; // PINO ESC 1 - HIGH
 				break;
 			case 1:
-				ESC2OUT |= ESC2BIT; // PINO ESC 2 - LOW
+				ESC2OUT |= ESC2BIT; // PINO ESC 2 - HIGH
 				break;
 			case 2:
-				ESC3OUT |= ESC3BIT; // PINO ESC 3 - LOW
+				ESC3OUT |= ESC3BIT; // PINO ESC 3 - HIGH
 				break;
 			case 3:
-				ESC4OUT |= ESC4BIT; // PINO ESC 4 - LOW
+				ESC4OUT |= ESC4BIT; // PINO ESC 4 - HIGH
 				break;
 		}
 		esc_totalWait += esc_ticks[esc_counter];
@@ -182,11 +182,9 @@ void esc_disconnectAll(void) {
 }
 
 /**
- * Habilita a configuração para um motor
- * PS.: Não executar com o motor em movimento
+ * Atualiza o motor
  */
-void esc_enableConfigMotor(uint8_t num) {
-	int value = MAX_PULSE_ESC - TRIM_DURATION;   // Envia o mais alto sinal que o ESC pode receber
+void updateMotor(int num, int value) {
 	volatile int v = usToTicks(value);  // convert to ticks after compensating for interrupt overhead
 	switch (num) {
 		case 1:
@@ -212,11 +210,42 @@ void esc_enableConfigMotor(uint8_t num) {
 
 /**
  * Habilita a configuração para um motor
+ * PS.: Não executar com o motor em movimento
+ */
+void esc_enableConfigMotor(uint8_t num) {
+	int value = MAX_PULSE_ESC - TRIM_DURATION;   // Envia o mais alto sinal que o ESC pode receber
+	updateMotor(num, value);
+	/*volatile int v = usToTicks(value);  // convert to ticks after compensating for interrupt overhead
+	switch (num) {
+		case 1:
+			// Habilitar a configuracao do motor 1
+			esc_ticks[0] = v; // this is atomic, no need to disable Interrupts
+			break;
+		case 2:
+			// Habilitar a configuracao do motor 2
+			esc_ticks[1] = v; // this is atomic, no need to disable Interrupts
+			break;
+		case 3:
+			// Habilitar a configuracao do motor 3
+			esc_ticks[2] = v; // this is atomic, no need to disable Interrupts
+			break;
+		case 4:
+			// Habilitar a configuracao do motor 4
+			esc_ticks[3] = v; // this is atomic, no need to disable Interrupts
+			break;
+		default:
+			break;
+	}*/
+}
+
+/**
+ * Habilita a configuração para um motor
  * PS.: Executar após o 'esc_enableConfigMotor'
  */
 void esc_activeConfigMotor(uint8_t num) {
 	int value = MIN_PULSE_ESC - TRIM_DURATION;
-	volatile int v = usToTicks(value);
+	updateMotor(num, value);
+	/*volatile int v = usToTicks(value);
 	switch (num) {
 		case 1:
 			// Ativa a configuracao do motor 1
@@ -236,7 +265,33 @@ void esc_activeConfigMotor(uint8_t num) {
 			break;
 		default:
 			break;
-	}
+	}*/
+}
+
+void esc_setDefaultPulse(uint8_t num) {
+	int value = DEFAULT_PULSE_WIDTH;
+	updateMotor(num, value);
+	/*volatile int v = usToTicks(value);
+	switch (num) {
+		case 1:
+			// Ativa a configuracao do motor 1
+			esc_ticks[0] = v;
+			break;
+		case 2:
+			// Ativa a configuracao do motor 2
+			esc_ticks[1] = v;
+			break;
+		case 3:
+			// Ativa a configuracao do motor 3
+			esc_ticks[2] = v;
+			break;
+		case 4:
+			// Ativa a configuracao do motor 4
+			esc_ticks[3] = v;
+			break;
+		default:
+			break;
+	}*/
 }
 
 /**
@@ -244,7 +299,8 @@ void esc_activeConfigMotor(uint8_t num) {
  */
 void esc_startMotor(uint8_t num) {
 	int value = MIN_FUNC_MOTOR - TRIM_DURATION;
-	volatile int v = usToTicks(value);
+	updateMotor(num, value);
+	/*volatile int v = usToTicks(value);
 	switch (num) {
 		case 1:
 			// Startar o motor 1
@@ -264,7 +320,7 @@ void esc_startMotor(uint8_t num) {
 			break;
 		default:
 			break;
-	}
+	}*/
 }
 
 /**
@@ -297,6 +353,9 @@ void esc_setSpeedMotor(uint8_t num, uint32_t value) {
 
 	value = map(value, 0, 1000, MIN_FUNC_MOTOR, MAX_FUNC_MOTOR);
 	value = value - TRIM_DURATION;
+	updateMotor(num, value);
+
+	/*
 	volatile int v = usToTicks(value);
 
 	switch (num) {
@@ -319,6 +378,7 @@ void esc_setSpeedMotor(uint8_t num, uint32_t value) {
 		default:
 			break;
 	}
+	*/
 }
 
 
@@ -327,6 +387,8 @@ void esc_setSpeedMotor(uint8_t num, uint32_t value) {
  */
 void esc_stopMotor(uint8_t num) {
 	int value = STOP_FUNC_MOTOR - TRIM_DURATION;
+	updateMotor(num, value);
+	/*
 	volatile int v = usToTicks(value);
 	switch (num) {
 		case 1:
@@ -347,7 +409,7 @@ void esc_stopMotor(uint8_t num) {
 			break;
 		default:
 			break;
-	}
+	}*/
 }
 
 /**

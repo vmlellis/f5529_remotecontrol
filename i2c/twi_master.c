@@ -266,6 +266,24 @@ uint16_t twi_master_read16(uint8_t devAddr, uint8_t regAddr) {
 }
 
 /*
+ * Função twi_master_read24
+ * Desc     Ler 3 bytes de um registrador
+ * Input    devAddr: endereço de 7bit do dispositivo i2c
+ * 			uint8_t: endereço de 7bit do registrador
+ * Output   3 bytes lidos do registrador
+ */
+uint32_t twi_master_read24(uint8_t devAddr, uint8_t regAddr) {
+	uint8_t vxa, vha, vla;
+	uint8_t buffer[3] = { 0, 0, 0 };
+	twi_master_readRegister(devAddr, regAddr, buffer, sizeof(buffer));
+	vxa = buffer[0];
+	vha = buffer[1];
+	vla = buffer[2];
+
+	return ((uint32_t)vxa << 16) | ((uint16_t)vha << 8) | vla;
+}
+
+/*
  * Função twi_master_writeBits
  * Desc     Escreve em bits definidos
  * Input    devAddr: endereço de 7bit do dispositivo i2c

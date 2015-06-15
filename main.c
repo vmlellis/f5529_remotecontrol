@@ -14,6 +14,7 @@
 #include "spi/cc3000/WiFiUDP.h"
 #include "libraries/utils.h"
 #include "libraries/esc.h"
+#include "libraries/buzzer_sounds.h"
 
 #define UDP_PORT 2390
 
@@ -23,6 +24,9 @@
 volatile int counterRX = 0;
 volatile int counterTX = 0;
 volatile int counterSPI = 0;*/
+volatile int counter_timer = 0;
+
+
 
 void initLeds(void);
 void initBuzzer(void);
@@ -97,7 +101,9 @@ uint8_t connectWiFiMemory(void);
 void printFirmwareWifiVersion(void);
 volatile int packetSize;
 
-const char *CMD_STRINGS[] = {"one","two","three"};
+uint32_t pemitted_remoteIP = 0;
+//const char *CMD_START_STRINGS[] = { "WIFI_", "BUZZER_", "ESC1_", "ESC2_", "ESC3_", "ESC4_" };
+const char *CMD_WIFI[] = { "WIFI_CONNECT", "WIFI_DISCONNECT" };
 
 
 // Prototipos
@@ -112,10 +118,26 @@ char lcd_line[21] = "";
 
 
 volatile uint8_t readUDP = 0;
-volatile uint8_t lcdCMD = 0;
+volatile uint8_t buttonCMD = 0;
 void readUDPBuffer(void);
 void replyUDP(void);
 
+// Buzzer - Music Control
+uint8_t buzzer_sing = 0;
+int buzzer_nota_index = 0;
+volatile int buzzer_counter_ms = 0; // Utilizado para contar os ms
+
+
+
+
+/**
+ * Caracteres especiais para o LCD
+ * - http://www.arduino.cc/en/Reference/LiquidCrystalCreateChar
+ * - https://www.hackmeister.dk/2010/08/custom-lcd-characters-with-arduino/
+ * - http://forum.arduino.cc/index.php?topic=74666.0
+ * - https://www.youtube.com/watch?v=jaD0dJtovwc
+ * - http://learn.trossenrobotics.com/28-robotgeek-getting-started-guides/59-lcd-special-characters.html
+ */
 uint8_t smiley[8] = {
   0b00000,
   0b10001,
@@ -140,19 +162,20 @@ int main(void) {
     enableWatchDog();
     saveUsbPower();
     setupUart();
-
     uart_printf("UART inicializado!\r\n");
 
     setupI2C();
+    uart_printf("I2C inicializado!\r\n");
 
     setupTimers();
+    uart_printf("Timers inicializados!\r\n");
 
     magEnabled = 0;
     barEnabled = 0;
     mpuEnabled = 0;
     lcdEnabled = 0;
 
-    lcdCMD = 0;
+    buttonCMD = 0;
 
     lcdEnabled = lcd_blue_detect();
     if (lcdEnabled) {
@@ -167,6 +190,9 @@ int main(void) {
     else {
     	uart_printf("Erro na Inicialização do LCD!\r\n");
     }
+
+    // Inicializar os ESCs
+    esc_init();
 
 
     //uart_printf("Inicializando o WiFi...\r\n");
@@ -222,18 +248,30 @@ int main(void) {
 
     while (1) {
 
-    	if (lcdCMD > 0) {
-    		switch(lcdCMD) {
+    	if (buttonCMD > 0) {
+    		switch(buttonCMD) {
     		case 1:
     			lcd_on();
     			break;
     		case 2:
     			lcd_off();
+    			break;
+    		case 3:
+    			//buzzer_sing = 1;
+    			break;
     		default:
     			break;
     		}
 
-    		lcdCMD = 0;
+    		buttonCMD = 0;
+    	}
+
+    	if (buzzer_sing) {
+    		if (playMarioSong(&buzzer_nota_index)) {
+    			buzzer_sing = 0;
+    			buzzer_nota_index = 0;
+    			resetPausa();
+    		}
     	}
 
     	if (readUDP) {
@@ -242,9 +280,232 @@ int main(void) {
     		if (packetSize) {
 				readUDPBuffer();
 
+				uint8_t cmd_error = 1;
+				uint32_t remoteIP = WiFiUDP_remoteIP();
+
+				/**
+				 * Wifi Commands
+				 */
+				if (startsWith(packetBuffer, "WIFI_")) {
+					if (strcmp(packetBuffer, CMD_WIFI[0]) == 0) {
+						pemitted_remoteIP = remoteIP;
+						strcpy(replyBuffer, "{status: 1, cmd: \"WIFI_CONNECT\"}");
+						cmd_error = 0;
+					}
+
+					if (strcmp(packetBuffer, CMD_WIFI[1]) == 0) {
+						pemitted_remoteIP = 0;
+						strcpy(replyBuffer, "{status: 1, cmd: \"WIFI_DISCONNECT\"}");
+						cmd_error = 0;
+					}
+				}
+
+				/**
+				 * Buzzer Commands
+				 */
+				if (startsWith(packetBuffer, "BUZZER_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "BUZZER_ON") == 0) {
+							BUZZER_OUT |= BUZZER_PIN; // Habilita o buzzer
+							strcpy(replyBuffer, "{status: 1, cmd: \"BUZZER_ON\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "BUZZER_OFF") == 0) {
+							BUZZER_OUT &= ~BUZZER_PIN;  // Desabilita o buzzer
+							strcpy(replyBuffer, "{status: 1, cmd: \"BUZZER_OFF\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "BUZZER_PLAY_MARIO") == 0) {
+							buzzer_sing = 1;
+							buzzer_nota_index = 0;
+							resetPausa();
+							strcpy(replyBuffer, "{status: 1, cmd: \"BUZZER_PLAY_MARIO\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "BUZZER_STOP_MARIO") == 0) {
+							buzzer_sing = 0;
+							buzzer_nota_index = 0;
+							resetPausa();
+							strcpy(replyBuffer, "{status: 1, cmd: \"BUZZER_STOP_MARIO\"}");
+							cmd_error = 0;
+						}
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
+				/**
+				 * ESC1 Commands
+				 */
+				if (startsWith(packetBuffer, "ESC1_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "ESC1_CONNECT") == 0) {
+							esc_connect(1);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC1_CONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC1_DISCONNECT") == 0) {
+							esc_disconnect(1);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC1_DISCONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC1_ENABLE_CONFIG") == 0) {
+							esc_enableConfigMotor(1);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC1_ENABLE_CONFIG\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC1_ACTIVE_CONFIG") == 0) {
+							esc_activeConfigMotor(1);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC1_ACTIVE_CONFIG\"}");
+							cmd_error = 0;
+						}
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
+				/**
+				 * ESC2 Commands
+				 */
+				if (startsWith(packetBuffer, "ESC2_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "ESC2_CONNECT") == 0) {
+							esc_connect(2);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC2_CONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC2_DISCONNECT") == 0) {
+							esc_disconnect(2);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC2_DISCONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC2_ENABLE_CONFIG") == 0) {
+							esc_enableConfigMotor(2);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC2_ENABLE_CONFIG\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC2_ACTIVE_CONFIG") == 0) {
+							esc_activeConfigMotor(2);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC2_ACTIVE_CONFIG\"}");
+							cmd_error = 0;
+						}
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
+				/**
+				 * ESC3 Commands
+				 */
+				if (startsWith(packetBuffer, "ESC3_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "ESC3_CONNECT") == 0) {
+							esc_connect(3);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC3_CONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC3_DISCONNECT") == 0) {
+							esc_disconnect(3);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC3_DISCONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC3_ENABLE_CONFIG") == 0) {
+							esc_enableConfigMotor(3);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC3_ENABLE_CONFIG\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC3_ACTIVE_CONFIG") == 0) {
+							esc_activeConfigMotor(3);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC3_ACTIVE_CONFIG\"}");
+							cmd_error = 0;
+						}
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
+				/**
+				 * ESC4 Commands
+				 */
+				if (startsWith(packetBuffer, "ESC4_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "ESC4_CONNECT") == 0) {
+							esc_connect(4);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC3_CONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC4_DISCONNECT") == 0) {
+							esc_disconnect(4);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC4_DISCONNECT\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC4_ENABLE_CONFIG") == 0) {
+							esc_enableConfigMotor(4);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC4_ENABLE_CONFIG\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC4_ACTIVE_CONFIG") == 0) {
+							esc_activeConfigMotor(4);
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC4_ACTIVE_CONFIG\"}");
+							cmd_error = 0;
+						}
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
+				/**
+				 * ESC Commands
+				 */
+				if (startsWith(packetBuffer, "ESC_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "ESC_CONNECT_ALL") == 0) {
+							esc_connectAll();
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC_CONNECT_ALL\"}");
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "ESC_DISCONNECT_ALL") == 0) {
+							esc_disconnectAll();
+							strcpy(replyBuffer, "{status: 1, cmd: \"ESC_DISCONNECT_ALL\"}");
+							cmd_error = 0;
+						}
+
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
 
 
-				strcpy(replyBuffer, "reply");
+
+
+				if (cmd_error == 1)
+					strcpy(replyBuffer, "{status: 0, msg: \"NOT FOUND\"}");
+
+				if (cmd_error == 2)
+					strcpy(replyBuffer, "{status: 0, msg: \"NOT AUTHORIZED\"}");
+
 				replyUDP();
     		}
     		readUDP = 0;
@@ -626,6 +887,7 @@ void PORT1_ISR (void) {
 		}
 		else {
 			uart_printf("Botao 1 UP!\r\n");
+			buttonCMD = 3;
 		}
 		P1IFG &= ~BUTTON1_PIN;	 // Limpa o flag de interrupção
 		__delay_cycles(400000); // Anti-bounce
@@ -654,7 +916,7 @@ void PORT1_ISR (void) {
 		}
 		else {
 			uart_printf("Botao 3 UP!\r\n");
-			lcdCMD = 1;
+			buttonCMD = 1;
 		}
 		P1IFG &= ~BUTTON3_PIN;	// Limpa o flag de interrupção
 		__delay_cycles(400000); // Anti-bounce
@@ -665,7 +927,7 @@ void PORT1_ISR (void) {
 		uart_printf("Interrupção do botao 4!\r\n");
 		if (P1IES & BUTTON4_PIN) {
 			uart_printf("Botao 4 DOWN!\r\n");
-			lcdCMD = 2;
+			buttonCMD = 2;
 		}
 		else {
 			uart_printf("Botao 4 UP!\r\n");
@@ -719,6 +981,7 @@ void TIMER1_A0_ISR (void)
 			if (len > 0) packetBuffer[len] = 0;
 		}
 	}*/
+	buzzer_counter_ms++;
 }
 
 /**
@@ -727,6 +990,7 @@ void TIMER1_A0_ISR (void)
 __attribute__((interrupt(TIMER1_A0_VECTOR)))
 void TIMER1_A1_ISR (void) {
 	esc_timer();
+	counter_timer++;
 }
 
 /**
