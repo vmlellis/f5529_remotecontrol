@@ -6,6 +6,7 @@
 
 
 #include <msp430f5529.h>
+#include <math.h>
 #include "setup.h"
 #include "uart/uart_tx.h"
 #include "i2c/lcd/lcd.h"
@@ -15,9 +16,27 @@
 #include "libraries/utils.h"
 #include "libraries/esc.h"
 #include "libraries/buzzer_sounds.h"
+#include "i2c/ms5611/ms5611.h"
+#include "i2c/mpu6050/mpu6050.h"
+#include "i2c/hmc5883l/hmc5883l.h"
+#include "libraries/madgwick.h"
 
 #define UDP_PORT 2390
 
+#define RESOLUTION_16BIT 32768
+#define ACCEL_AFS 2
+#define GYRO_DPS 250
+
+#define GyroMeasError PI * (40.0f / 180.0f)    // gyroscope measurement error in rads/s (shown as 3 deg/s)
+// There is a tradeoff in the beta parameter between accuracy and response speed.
+// In the original Madgwick study, beta of 0.041 (corresponding to GyroMeasError of 2.7 degrees/s) was found to give optimal accuracy.
+// However, with this value, the LSM9SD0 response time is about 10 seconds to a stable initial quaternion.
+// Subsequent changes also require a longish lag time to a stable output, not fast enough for a quadcopter or robot car!
+// By increasing beta (GyroMeasError) by about a factor of fifteen, the response time constant is reduced to ~2 sec
+// I haven't noticed any reduction in solution accuracy. This is essentially the I coefficient in a PID control sense;
+// the bigger the feedback coefficient, the faster the solution converges, usually at the expense of accuracy.
+// In any case, this is the free parameter in the Madgwick filtering and fusion scheme.
+#define GyroBeta sqrt(3.0f / 4.0f) * GyroMeasError   // compute beta
 
 
 /*volatile int counter = 0;
@@ -61,22 +80,28 @@ uint16_t SFRACT_INC = 0;
 // Informa se deve ser realizado a leitura dos sensores
 volatile uint8_t readSensors = 0;
 
-// Parametros do magnometro (HMC5884L)
+// Parametros do magnometro (HMC5883L)
 uint8_t magEnabled = 0;			// Informa que o magnometro estah habilitado
 int mx = 0, my = 0, mz = 0;		// Dados do magnometro
 
-// Parametros do barometro (BMP085)
+// Parametros do barometro (MS5611)
 uint8_t barEnabled = 0;
-long temp10 = 0, pressure = 0;
-float temp = 0.0, altitude = 0.0;
+float altitude = 0.0;
 
 // Parametros do accel/gyro (MPU6050)
 uint8_t mpuEnabled = 0;
-int16_t mpuTemp = 0;
-float mpuTempDegrees = 0.0;
 int16_t gx = 0, gy = 0, gz = 0;	// Dados do giroscopio
 int16_t ax = 0, ay = 0, az = 0; // Dados do acelerometro
+float axNormalized, ayNormalized, azNormalized; // Aceleração normalizada
+float gxNormalized, gyNormalized, gzNormalized; // Giroscopio normalizado
 
+// Madgwick Filter
+madgwick_params mParams;
+uint32_t lastUpdate = 0; // used to calculate integration interval
+uint32_t now = 0;        // used to calculate integration interval
+
+// Dados para o sistema de orientacao
+float pitch, yaw, roll;
 
 // LCD
 uint8_t lcdEnabled = 0;
@@ -90,7 +115,7 @@ volatile uint8_t udpInitialized = 0;
 unsigned int timeoutWifi = 30000;   // Milliseconds
 uint8_t wiFiServerInitialized = 0;
 char packetBuffer[255];
-char replyBuffer[100];
+char replyBuffer[255];
 /*char replyBuffer[] = "acknowledged";
 char replyBuffer2[] = "teste ok";*/
 void showIPAddress(void);
@@ -98,8 +123,10 @@ void showRemoteAddress(uint32_t);
 void showSSID(void);
 uint8_t connectWiFi(void);
 uint8_t connectWiFiMemory(void);
+uint8_t connectWiFiSmartConfig(void);
 void printFirmwareWifiVersion(void);
 volatile int packetSize;
+void stepsAfterConnectWiFi(void);
 
 uint32_t pemitted_remoteIP = 0;
 //const char *CMD_START_STRINGS[] = { "WIFI_", "BUZZER_", "ESC1_", "ESC2_", "ESC3_", "ESC4_" };
@@ -195,6 +222,34 @@ int main(void) {
     esc_init();
 
 
+    // Inicialização do MPU6050
+    if (mpu6050_detect()) {
+    	mpu6050_config();
+		mpuEnabled = 1;
+    }
+
+
+    // Inicialização do HMC5883L
+    if (hmc5883l_detect()) {
+    	hmc5883l_config();
+    	hmc5883l_calibrate();
+		magEnabled = 1;
+    }
+
+    // Inicialização do MS5611
+    if (ms5611_detect()) {
+    	ms5611_config(MS5611_ULTRA_HIGH_RES);
+		barEnabled = 1;
+    }
+
+    if (mpuEnabled && magEnabled) {
+    	madgwick_init(&mParams, 0.0f, GyroBeta);
+    	uart_printf("q -> %.3f:%.3f:%.3f:%.3f\r\n",
+    			mParams.quaternion[0], mParams.quaternion[1], mParams.quaternion[2], mParams.quaternion[3]);
+
+    }
+
+
     //uart_printf("Inicializando o WiFi...\r\n");
     _enable_interrupts();
     if (WiFi_init()) {
@@ -215,10 +270,10 @@ int main(void) {
 
 
 
-
     if (wifiInit) {
 		wifiConnected = connectWiFiMemory();
-		if (wifiConnected) {
+		stepsAfterConnectWiFi();
+		/*if (wifiConnected) {
 			uart_printf("WiFi conectado!\r\n");
 			showSSID();
 			showIPAddress();
@@ -242,8 +297,9 @@ int main(void) {
 				//strcpy(lcd_line, "Erro: Nao Conectado");
 				lcd_print("Erro: Nao Conectado");
 			}
-		}
+		}*/
     }
+
 
 
     while (1) {
@@ -258,6 +314,11 @@ int main(void) {
     			break;
     		case 3:
     			//buzzer_sing = 1;
+    			uart_printf("SmartConfig!\r\n");
+    			lcd_setCursor(0,1);
+    			strcpy(lcd_line, "WiFi: SmartConfig...");
+    			wifiConnected = connectWiFiSmartConfig();
+    			stepsAfterConnectWiFi();
     			break;
     		default:
     			break;
@@ -272,6 +333,71 @@ int main(void) {
     			buzzer_nota_index = 0;
     			resetPausa();
     		}
+    	}
+
+    	if (readSensors) {
+    		/**
+    		 * Referencia IMU:
+    		 * - https://github.com/kriswiner/MPU6050HMC5883AHRS/blob/master/MPU6050HMC5883AHRS.ino
+    		 * - https://github.com/kriswiner/MPU-6050/wiki/Affordable-9-DoF-Sensor-Fusion
+    		 */
+    		if (mpuEnabled) {
+				mpu6050_getAcceleration(&ax, &ay, &az);
+
+				// Calculado o valor da aceleracao em g's
+				float resolution = (float) ACCEL_AFS / (float) RESOLUTION_16BIT;
+				axNormalized = ax * resolution;
+				ayNormalized = ay * resolution;
+				azNormalized = az * resolution;
+
+				mpu6050_getRotation(&gx,&gy,&gz);
+
+				// Calcular o valor atual de graus por segundo
+				resolution = (float) GYRO_DPS / (float) RESOLUTION_16BIT;
+				gxNormalized = gx * resolution;
+				gyNormalized = gy * resolution;
+				gzNormalized = gz * resolution;
+
+
+    		}
+
+    		if (magEnabled) {
+    			hmc5883l_read_scalled_data(&mx,&my,&mz);
+    		}
+
+
+    		if (barEnabled)
+    			ms5611_readAltitude(&altitude);
+
+    		if (mpuEnabled && magEnabled) {
+				now = micros();
+				mParams.samplePeriod = ((now - lastUpdate)/1000000.0f); // set integration time by time elapsed since last filter update
+				lastUpdate = now;
+
+				madgwick_update(&mParams, ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f,  mx,  my,  mz);
+
+				// Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
+				// In this coordinate system, the positive z-axis is down toward Earth.
+				// Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
+				// Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
+				// Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
+				// These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
+				// Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
+				// applied in the correct order which for this configuration is yaw, pitch, and then roll.
+				// For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
+				yaw   = atan2(2.0f * (mParams.quaternion[1] * mParams.quaternion[2] + mParams.quaternion[0] * mParams.quaternion[3]),
+						mParams.quaternion[0] * mParams.quaternion[0] + mParams.quaternion[1] * mParams.quaternion[1] - mParams.quaternion[2] * mParams.quaternion[2] - mParams.quaternion[3] * mParams.quaternion[3]);
+				pitch = -asin(2.0f * (mParams.quaternion[1] * mParams.quaternion[3] - mParams.quaternion[0] * mParams.quaternion[2]));
+				roll  = atan2(2.0f * (mParams.quaternion[0] * mParams.quaternion[1] + mParams.quaternion[2] * mParams.quaternion[3]),
+						mParams.quaternion[0] * mParams.quaternion[0] - mParams.quaternion[1] * mParams.quaternion[1] - mParams.quaternion[2] * mParams.quaternion[2] + mParams.quaternion[3] * mParams.quaternion[3]);
+
+				pitch *= 180.0f / PI;
+				yaw   *= 180.0f / PI;
+				roll  *= 180.0f / PI;
+
+    		}
+
+    		readSensors = 0;
     	}
 
     	if (readUDP) {
@@ -497,6 +623,134 @@ int main(void) {
 					}
 				}
 
+				/**
+				 * Read Sensors
+				 */
+				if (startsWith(packetBuffer, "SENSOR_")) {
+					if (pemitted_remoteIP == remoteIP) {
+						if (strcmp(packetBuffer, "SENSOR_ACCEL") == 0) {
+							strcpy(replyBuffer, "{status: 1, cmd: \"SENSOR_ACCEL\", ax: ");
+
+							char buffer[8];
+
+							itoa((int) (axNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", ay: ");
+							itoa((int) (ayNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", az: ");
+							itoa((int) (azNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, " }");
+
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "SENSOR_GYRO") == 0) {
+							strcpy(replyBuffer, "{status: 1, cmd: \"SENSOR_GYRO\", gx: ");
+
+							char buffer[8];
+
+							itoa((int) (gxNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", gy: ");
+							itoa((int) (gyNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", gz: ");
+							itoa((int) (gzNormalized * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, " }");
+
+							//uart_printf("%i:%i:%i\r\n", gx, gy, gz);
+
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "SENSOR_MAG") == 0) {
+							strcpy(replyBuffer, "{status: 1, cmd: \"SENSOR_MAG\", mx: ");
+
+							char buffer[8];
+
+							itoa(mx, buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", my: ");
+							itoa(my, buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", mz: ");
+							itoa(mz, buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, " }");
+
+							//uart_printf("%i:%i:%i\r\n", mx, my, mz);
+
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "SENSOR_QUATERNION") == 0) {
+							strcpy(replyBuffer, "{status: 1, cmd: \"SENSOR_QUATERNION\", q0: ");
+
+							char buffer[8];
+
+							itoa((int) (mParams.quaternion[0] * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", qx: ");
+							itoa((int) (mParams.quaternion[1] * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", qy: ");
+							itoa((int) (mParams.quaternion[2] * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", qz: ");
+							itoa((int) (mParams.quaternion[3] * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, " }");
+
+							uart_printf("q -> %.3f:%.3f:%.3f:%.3f\r\n",
+							    			mParams.quaternion[0], mParams.quaternion[1], mParams.quaternion[2], mParams.quaternion[3]);
+
+							cmd_error = 0;
+						}
+
+						if (strcmp(packetBuffer, "SENSOR_ROT") == 0) {
+							strcpy(replyBuffer, "{status: 1, cmd: \"SENSOR_ROT\", y: ");
+
+							char buffer[8];
+
+							itoa((int) (yaw * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", p: ");
+							itoa((int) (pitch * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, ", r: ");
+							itoa((int) (roll * 1000), buffer, 10);
+							strcat(replyBuffer, buffer);
+
+							strcat(replyBuffer, " }");
+
+
+							cmd_error = 0;
+						}
+
+					}
+					else {
+						cmd_error = 2;
+					}
+				}
+
 
 
 
@@ -700,6 +954,34 @@ uint8_t connectWiFi() {
 	}
 
 	return 0;
+}
+
+void stepsAfterConnectWiFi(void) {
+	if (wifiConnected) {
+			uart_printf("WiFi conectado!\r\n");
+			showSSID();
+			showIPAddress();
+
+			WiFiUDP_init();
+			if(WiFiUDP_start(UDP_PORT)) {
+
+				uart_printf("UDP inicializado!\r\n");
+
+				lcd_setCursor(0,0);
+				lcd_write(0);
+				lcd_print(" Iniciado!");
+
+				udpInitialized = 1;
+			}
+
+		}
+		else {
+			if (lcdEnabled) {
+				lcd_setCursor(0,1);
+				//strcpy(lcd_line, "Erro: Nao Conectado");
+				lcd_print("Erro: Nao Conectado");
+			}
+		}
 }
 
 
@@ -999,6 +1281,7 @@ void TIMER1_A1_ISR (void) {
 __attribute__((interrupt(TIMER2_A0_VECTOR)))
 void TIMER2_A2_ISR (void)
 {
+	readSensors = 1;
   //P1OUT ^= 0x01; // Toggle P1.0
 }
 

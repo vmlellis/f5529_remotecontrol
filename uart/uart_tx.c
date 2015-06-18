@@ -86,30 +86,63 @@ static void puth(unsigned n) {
 	uart_putc(hex[n & 15]);
 }
 
-// Para imprimir os decimais de um ponto flutuante
-static void xtoa_decimals(float f, int decimals)
-{
-  int pos = 0, value = 0, multiplier = 1;
-  while (pos < decimals)
-  {
-	multiplier *= 10;
-	pos++;
-  }
-  value = (int)f;
-  f = f - (float)value;
-  value = (int) floorf(f * multiplier + 0.5);
-  xtoa((unsigned long)value, dv + 3); // 23 bits
-}
 
-// Para imprimir ponto fluante
-static void ftoa(float f, int decimals)
+/*
+ * Imprimir ponto flutuante
+ */
+static void ftoa(float floatingNumber, int decimals)
 {
-  float f_temp = f;
-  int i = (int) f;
-  if(i < 0) i = -i, f_temp = -f_temp, uart_putc('-');
-  xtoa((unsigned)i, dv + 7); // 8 bits
-  uart_putc('.');
-  xtoa_decimals(f_temp, decimals);
+	char tempFloatString[7];
+    int tempIndex = 0;
+    int tempValue = 0;
+
+    tempValue = (int)floatingNumber;
+
+    if (floatingNumber < 0)
+    {
+        //tempFloatString[index++] = '-';
+    	uart_putc('-');
+        tempValue = -tempValue;
+        floatingNumber = -floatingNumber;
+    }
+
+    floatingNumber -= tempValue;
+
+    do
+    {
+        tempFloatString[tempIndex++] = tempValue%10 + '0';
+    }
+    while( (tempValue /= 10) > 0);
+
+    tempIndex--;
+
+    while(tempIndex > -1)
+    {
+        uart_putc(tempFloatString[tempIndex--]);
+    }
+
+    int i = 0, multiplier = 1;
+    for(i = 0; i < decimals; i++) {
+    	multiplier *= 10;
+    }
+
+    uart_putc('.');
+    tempValue = (int)(floatingNumber * multiplier);
+
+    tempIndex = decimals;
+
+	while(tempIndex > 0)
+	{
+		tempFloatString[--tempIndex] = tempValue % 10 + '0';
+		tempValue /= 10;
+	}
+
+	tempIndex = 0;
+	while(tempIndex < decimals)
+	{
+		uart_putc(tempFloatString[tempIndex++]);
+	}
+
 }
 
 // Funncao para imprimir

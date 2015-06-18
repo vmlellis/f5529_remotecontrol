@@ -128,6 +128,11 @@
 #define FRACT_INC (MICROSECONDS_PER_WDT_OVERFLOW % 1000)
 #define FRACT_MAX 1000
 
+/**
+ * Definições matematicas
+ */
+#define PI 3.1415926535897932384626433832795
+
 void disableWatchDog(void);
 void enableWatchDog(void);
 void saveUsbPower(void);
@@ -138,6 +143,7 @@ void delay(uint32_t);
 void delayMicroseconds(uint32_t);
 uint8_t read_bits(uint8_t, uint8_t, uint8_t);
 uint8_t write_bits(uint8_t, uint8_t, uint8_t);
+unsigned long micros();
 unsigned long millis();
 
 #endif /* CONFIG_H_ */
