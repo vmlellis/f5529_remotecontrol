@@ -43,9 +43,6 @@
 // have a C binding.
 //
 //*****************************************************************************
-#ifdef  __cplusplus
-extern "C" {
-#endif
 
 
 #define AES128_KEY_SIZE		16

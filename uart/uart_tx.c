@@ -204,7 +204,9 @@ void uart_printf(char *format, ...)
             ftoa(f,decimals);
           }
           break;
-        case 0: return;
+        case 0: 
+          va_end(a);
+          return;
         default: goto bad_fmt;
       }
     } else

@@ -71,7 +71,9 @@ uint8_t hmc5883l_detect(void);
 void hmc5883l_config(void);
 void hmc5883_setMeasurement(uint8_t);
 void hmc5883l_read_data(int*, int*, int*);
-void hmc5883l_read_scalled_data(int*, int*, int*);
-void hmc5883l_calibrate(void);
+//void hmc5883l_read_scalled_data(int*, int*, int*);
+//void hmc5883l_calibrate(void);
+void hmc5883l_setMode(uint8_t);
+void hmc5883l_setGain(uint8_t);
 
 #endif /* I2C_HMC5883L_HMC5883L_H_ */

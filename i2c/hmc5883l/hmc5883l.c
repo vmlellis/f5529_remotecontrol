@@ -19,13 +19,13 @@
 #include "../twi_master.h"
 #include "../../setup.h"
 
-#define compass_XY_excitation 1160 // The magnetic field excitation in X and Y direction during Self Test (Calibration)
+/*#define compass_XY_excitation 1160 // The magnetic field excitation in X and Y direction during Self Test (Calibration)
 #define compass_Z_excitation 1080  // The magnetic field excitation in Z direction during Self Test (Calibration)
 
 static int compass_x, compass_y, compass_z;
 static float compass_gain_fact = 1;
 static float compass_x_gainError=1,compass_y_gainError=1,compass_z_gainError=1;
-static float compass_x_offset=0, compass_y_offset=0, compass_z_offset=0;
+static float compass_x_offset=0, compass_y_offset=0, compass_z_offset=0;*/
 
 /*
  * Detectar se estah no barramento
@@ -37,19 +37,41 @@ uint8_t hmc5883l_detect(void) {
 	return (hmlc5883_RxBuffer[0] == 'H' && hmlc5883_RxBuffer[1] == '4' && hmlc5883_RxBuffer[2] == '3');
 }
 
+/**
+ * Set measurement mode.
+ * @param newMode New measurement mode
+ */
+void hmc5883l_setMode(uint8_t newMode) {
+    // use this method to guarantee that bits 7-2 are set to zero, which is a
+    // requirement specified in the datasheet
+	twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_MODE, &newMode, 1);
+}
+
+/**
+ * Set magnetic field gain value.
+ * @param gain New magnetic field gain value
+ */
+void hmc5883l_setGain(uint8_t gain) {
+    // use this method to guarantee that bits 4-0 are set to zero, which is a
+    // requirement specified in the datasheet
+	twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_CONFIG_B, &gain, 1);
+}
+
 /*
  * Configuração
  */
 void hmc5883l_config(void) {
 	uint8_t data_a[] = { HMC5883L_AVG_8 | HMC5883L_HZ_15 | HMC5883L_MS_NORMAL };
-	uint8_t data_b[] = { HMC5883L_GAIN_0_88 };
-	uint8_t data_mode[] = { HMC5883L_MD_CONTINUOUS };
+	//uint8_t data_b[] = { HMC5883L_GAIN_0_88 };
+	//uint8_t data_mode[] = { HMC5883L_MD_CONTINUOUS };
 
 	twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_CONFIG_A, data_a, sizeof(data_a));
-	twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_CONFIG_B, data_b, sizeof(data_b));
-	twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_MODE, data_mode, sizeof(data_mode));
+	//twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_CONFIG_B, data_b, sizeof(data_b));
+	hmc5883l_setGain(HMC5883L_GAIN_1_33);
+	//twi_master_writeRegister(HMC5883L_ADDR, HMC5883L_REG_MODE, data_mode, sizeof(data_mode));
+	hmc5883l_setMode(HMC5883L_MD_SINGLE);
 
-	compass_gain_fact = 0.73;
+	//compass_gain_fact = 0.73;
 }
 
 /*
@@ -74,18 +96,18 @@ void hmc5883l_read_data(int *mx, int *my, int *mz) {
 /**
  * Ler os dados calibrados
  */
-void hmc5883l_read_scalled_data(int *mx, int *my, int *mz) {
+/*void hmc5883l_read_scalled_data(int *mx, int *my, int *mz) {
 	hmc5883l_read_data(&compass_x, &compass_y, &compass_z);
 
 	*mx=compass_x*compass_gain_fact*compass_x_gainError+compass_x_offset;
 	*my=compass_y*compass_gain_fact*compass_y_gainError+compass_y_offset;
 	*mz=compass_z*compass_gain_fact*compass_z_gainError+compass_z_offset;
-}
+}*/
 
 /**
  * Calibrar
  */
-void hmc5883l_calibrate() {
+/*void hmc5883l_calibrate() {
 
 	hmc5883_setMeasurement(HMC5883L_MS_POSITIVE);
 	delay(70);
@@ -115,4 +137,5 @@ void hmc5883l_calibrate() {
 
 	hmc5883_setMeasurement(HMC5883L_MS_NORMAL);
 	delay(70);
-}
+}*/
+
