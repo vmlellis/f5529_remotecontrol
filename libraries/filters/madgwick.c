@@ -16,10 +16,10 @@
 #define beta sqrt(3.0f / 4.0f) * GyroMeasError   // compute beta
 
 // integration interval for both filter schemes
-static float deltat = 0.0f;
+static double deltat = 0.0f;
 
 // vector to hold quaternion
-static float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+static double q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
 /*
  * Inicialização
@@ -32,60 +32,60 @@ void madgwick_init() {
 	deltat = 0.0f;
 }
 
-void madgwick_setSamplePeriod(float value) {
+void madgwick_setSamplePeriod(double value) {
 	deltat = value;
 }
 
-float madgwick_getQ0() {
+double madgwick_getQ0() {
 	return q[0];
 }
 
-float madgwick_getQ1() {
+double madgwick_getQ1() {
 	return q[1];
 }
 
-float madgwick_getQ2() {
+double madgwick_getQ2() {
 	return q[2];
 }
 
-float madgwick_getQ3() {
+double madgwick_getQ3() {
 	return q[3];
 }
 
 /**
  * Algoritmo de atualização
  */
-void madgwick_QuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz)
+void madgwick_QuaternionUpdate(double ax, double ay, double az, double gx, double gy, double gz, double mx, double my, double mz)
 {
-  float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
-  float norm;
-  float hx, hy, _2bx, _2bz;
-  float s1, s2, s3, s4;
-  float qDot1, qDot2, qDot3, qDot4;
+  double q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
+  double norm;
+  double hx, hy, _2bx, _2bz;
+  double s1, s2, s3, s4;
+  double qDot1, qDot2, qDot3, qDot4;
 
   // Auxiliary variables to avoid repeated arithmetic
-  float _2q1mx;
-  float _2q1my;
-  float _2q1mz;
-  float _2q2mx;
-  float _4bx;
-  float _4bz;
-  float _2q1 = 2.0f * q1;
-  float _2q2 = 2.0f * q2;
-  float _2q3 = 2.0f * q3;
-  float _2q4 = 2.0f * q4;
-  float _2q1q3 = 2.0f * q1 * q3;
-  float _2q3q4 = 2.0f * q3 * q4;
-  float q1q1 = q1 * q1;
-  float q1q2 = q1 * q2;
-  float q1q3 = q1 * q3;
-  float q1q4 = q1 * q4;
-  float q2q2 = q2 * q2;
-  float q2q3 = q2 * q3;
-  float q2q4 = q2 * q4;
-  float q3q3 = q3 * q3;
-  float q3q4 = q3 * q4;
-  float q4q4 = q4 * q4;
+  double _2q1mx;
+  double _2q1my;
+  double _2q1mz;
+  double _2q2mx;
+  double _4bx;
+  double _4bz;
+  double _2q1 = 2.0f * q1;
+  double _2q2 = 2.0f * q2;
+  double _2q3 = 2.0f * q3;
+  double _2q4 = 2.0f * q4;
+  double _2q1q3 = 2.0f * q1 * q3;
+  double _2q3q4 = 2.0f * q3 * q4;
+  double q1q1 = q1 * q1;
+  double q1q2 = q1 * q2;
+  double q1q3 = q1 * q3;
+  double q1q4 = q1 * q4;
+  double q2q2 = q2 * q2;
+  double q2q3 = q2 * q3;
+  double q2q4 = q2 * q4;
+  double q3q3 = q3 * q3;
+  double q3q4 = q3 * q4;
+  double q4q4 = q4 * q4;
 
   // Normalise accelerometer measurement
   norm = sqrt(ax * ax + ay * ay + az * az);

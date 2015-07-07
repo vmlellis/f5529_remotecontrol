@@ -23,11 +23,11 @@ void madgwick_update(madgwick_params* p, float gx, float gy, float gz, float ax,
 */
 
 void madgwick_init(void);
-void madgwick_setSamplePeriod(float);
-float madgwick_getQ0(void);
-float madgwick_getQ1(void);
-float madgwick_getQ2(void);
-float madgwick_getQ3(void);
-void madgwick_QuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz);
+void madgwick_setSamplePeriod(double);
+double madgwick_getQ0(void);
+double madgwick_getQ1(void);
+double madgwick_getQ2(void);
+double madgwick_getQ3(void);
+void madgwick_QuaternionUpdate(double ax, double ay, double az, double gx, double gy, double gz, double mx, double my, double mz);
 
 #endif /* LIBRARIES_QUATERNION_MADGWICK_H_ */

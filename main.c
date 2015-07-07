@@ -25,6 +25,11 @@
 #define UDP_PORT 2390
 
 /**
+ * Leituras nos sensores
+ */
+#define SENSORS_PACKET_COUNT 8
+
+/**
  * Definições para o MPU6050
  */
 //#define ACCEL_SENSIVITY 16384
@@ -198,12 +203,12 @@ float altitude = 0.0;
 uint8_t mpuEnabled = 0;
 int16_t gx = 0, gy = 0, gz = 0; // Dados do giroscopio
 int16_t ax = 0, ay = 0, az = 0; // Dados do acelerometro
-float axNormalized, ayNormalized, azNormalized; // Aceleração normalizada
-float gxNormalized, gyNormalized, gzNormalized; // Giroscopio normalizado
+double axNormalized, ayNormalized, azNormalized; // Aceleração normalizada
+double gxNormalized, gyNormalized, gzNormalized; // Giroscopio normalizado
 /*float gyroBias[3], accelBias[3]; // Bias corrections for gyro and accelerometer*/
 
-float aRes = (float) ACCEL_AFS / (float) RESOLUTION_16BIT;
-float gRes = (float) GYRO_DPS / (float) RESOLUTION_16BIT;
+double aRes = (float) ACCEL_AFS / (float) RESOLUTION_16BIT;
+double gRes = (float) GYRO_DPS / (float) RESOLUTION_16BIT;
 
 
 /**
@@ -253,6 +258,14 @@ uint8_t smiley[8] = {
   0b00000,
 };
 
+/**
+ * Calculo dos sensores
+ */
+int16_t accel_temp[3];
+int16_t gyro_temp[3];
+int16_t mag_temp[3];
+void readSensorsOrientation(int count);
+void readSensorMag(int count);
 
 /*
  * main.c
@@ -294,7 +307,7 @@ int main(void) {
         lcd_createChar(0, smiley);
     }
     else {
-        uart_printf("Erro na Inicialização do LCD!\r\n");
+        uart_printf("Erro na Inicializacao do LCD!\r\n");
     }
 
     // Inicializar os ESCs
@@ -373,10 +386,14 @@ int main(void) {
             case 3:
                 //buzzer_sing = 1;
                 uart_printf("SmartConfig!\r\n");
-                lcd_setCursor(0,1);
-                lcd_print("WiFi: SmartConfig...");
-                wifiConnected = connectWiFiSmartConfig();
-                stepsAfterConnectWiFi();
+                if (lcdEnabled) {
+					lcd_setCursor(0,1);
+					lcd_print("WiFi: SmartConfig...");
+            	}
+                if (wifiInit) {
+					wifiConnected = connectWiFiSmartConfig();
+					stepsAfterConnectWiFi();
+                }
                 break;
             default:
                 break;
@@ -400,49 +417,136 @@ int main(void) {
              * - https://github.com/kriswiner/MPU-6050/wiki/Affordable-9-DoF-Sensor-Fusion
              */
             if (mpuEnabled) {
-                //mpu6050_getMotion6(&ax, &ay, &az, &gx, &gy, &gz); -> Trava o mag
+                //mpu6050_getMotion6(&ax, &ay, &az, &gx, &gy, &gz); //-> Trava o mag
 
                 mpu6050_getAcceleration(&ax, &ay, &az);
-
-                // Calculado o valor da aceleracao em g's
-                /*float resolution = (float) ACCEL_AFS / (float) RESOLUTION_16BIT;
-                axNormalized = ax * resolution - accelBias[0];
-                ayNormalized = ay * resolution - accelBias[1];
-                azNormalized = az * resolution - accelBias[2];*/
-
                 mpu6050_getRotation(&gx,&gy,&gz);
 
-                // Calcular o valor atual de graus por segundo
-                /*resolution = (float) GYRO_DPS / (float) RESOLUTION_16BIT;
-                gxNormalized = gx * resolution - gyroBias[0];
-                gyNormalized = gy * resolution - gyroBias[1];
-                gzNormalized = gz * resolution - gyroBias[2];*/
+                double temp_ax, temp_ay, temp_az;
+				double temp_gx, temp_gy, temp_gz;
 
-                /*gxNormalized = gx / (double)GYRO_SENSIVITY;
-                gyNormalized = gy / (double)GYRO_SENSIVITY;
-                gzNormalized = gz / (double)GYRO_SENSIVITY;*/
+				temp_ax = ax;
+				temp_ay = ay;
+				temp_az = az;
 
-                // Calculado o valor da aceleracao em g's
-                axNormalized = ax * aRes;
-                ayNormalized = ay * aRes;
-                azNormalized = az * aRes;
+				temp_gx = gx;
+				temp_gy = gy;
+				temp_gz = gz;
+
+				int i = 0;
+				for (i = 0; i < 2; i++) {
+					mpu6050_getAcceleration(&ax, &ay, &az);
+					mpu6050_getRotation(&gx,&gy,&gz);
+
+					temp_ax += ax;
+					temp_ay += ay;
+					temp_az += az;
+
+					temp_gx += gx;
+					temp_gy += gy;
+					temp_gz += gz;
+
+					temp_ax /= 2.0;
+					temp_ay /= 2.0;
+					temp_az /= 2.0;
+
+					temp_gx /= 2.0;
+					temp_gy /= 2.0;
+					temp_gz /= 2.0;
+				}
+
+				ax = temp_ax;
+				ay = temp_ay;
+				az = temp_az;
+
+				gx = temp_gx;
+				gy = temp_gy;
+				gz = temp_gz;
 
 
-                // Calcular o valor atual de graus por segundo
-                gxNormalized = gx * gRes;
-                gyNormalized = gy * gRes;
-                gzNormalized = gz * gRes;
             }
 
+            /*accel_temp[0] = ax;
+			accel_temp[1] = ay;
+			accel_temp[2] = az;
+
+			gyro_temp[0] = gx;
+			gyro_temp[1] = gy;
+			gyro_temp[2] = gz;
+
+			readSensorsOrientation(SENSORS_PACKET_COUNT-1);
+
+			ax = accel_temp[0];
+			ay = accel_temp[1];
+			az = accel_temp[2];
+
+			gx = gyro_temp[0];
+			gy = gyro_temp[1];
+			gz = gyro_temp[2];*/
+
+
+			//delayMicroseconds(10);
+
+
             if (magEnabled) {
+            	delay(1);
                 //hmc5883l_read_scalled_data(&mx,&my,&mz); //--> Verificar se interessante
                 hmc5883l_read_data(&mx,&my,&mz);
                 //scaleMeasurementsMag();
 
-                mxNormalized = mx * mRes;
-                myNormalized = my * mRes;
-                mzNormalized = mz * mRes;
+                double temp_mx, temp_my, temp_mz;
+
+				temp_mx = mx;
+				temp_my = my;
+				temp_mz = mz;
+
+				int i = 0;
+				for (i = 0; i < 2; i++) {
+					delay(1);
+					hmc5883l_read_data(&mx,&my,&mz);
+
+					temp_mx += mx;
+					temp_my += my;
+					temp_mz += mz;
+
+					temp_mx /= 2.0;
+					temp_my /= 2.0;
+					temp_mz /= 2.0;
+				}
+
+				mx = temp_mx;
+				my = temp_my;
+				mz = temp_mz;
             }
+
+
+            /*mag_temp[0] = mx;
+			mag_temp[1] = my;
+			mag_temp[2] = mz;
+
+			readSensorMag(SENSORS_PACKET_COUNT-1);
+
+			mx = mag_temp[0];
+			my = mag_temp[1];
+			mz = mag_temp[2];*/
+
+
+
+            // Calculado o valor da aceleracao em g's
+			axNormalized = ax * aRes;
+			ayNormalized = ay * aRes;
+			azNormalized = az * aRes;
+
+
+			// Calcular o valor atual de graus por segundo
+			gxNormalized = gx * gRes;
+			gyNormalized = gy * gRes;
+			gzNormalized = gz * gRes;
+
+			// Calcular o valor em gauss
+			mxNormalized = mx * mRes;
+			myNormalized = my * mRes;
+			mzNormalized = mz * mRes;
 
 
             if (mpuEnabled && magEnabled) {
@@ -481,7 +585,9 @@ int main(void) {
             }
 
             if (barEnabled)
-                ms5611_readAltitude(&altitude);
+            	ms5611_readAltitude(&altitude);
+
+
 
             readSensors = 0;
         }
@@ -521,6 +627,50 @@ int main(void) {
 
 
     return 0;
+}
+
+void readSensorsOrientation(int count) {
+	if (mpuEnabled) {
+		mpu6050_getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+		//mpu6050_getAcceleration(&ax, &ay, &az);
+		//mpu6050_getRotation(&gx,&gy,&gz);
+
+		accel_temp[0] += ax;
+		accel_temp[1] += ay;
+		accel_temp[2] += az;
+
+		gyro_temp[0] += gx;
+		gyro_temp[1] += gy;
+		gyro_temp[2] += gz;
+
+		accel_temp[0] /= 2.0;
+		accel_temp[1] /= 2.0;
+		accel_temp[2] /= 2.0;
+
+		gyro_temp[0] /= 2.0;
+		gyro_temp[1] /= 2.0;
+		gyro_temp[2] /= 2.0;
+	}
+
+	if (count > 0)
+		readSensorsOrientation(count-1);
+}
+
+void readSensorMag(int count) {
+	if (magEnabled) {
+		hmc5883l_read_data(&mx,&my,&mz);
+
+		mag_temp[0] += mx;
+		mag_temp[1] += my;
+		mag_temp[2] += mz;
+
+		mag_temp[0] /= 2.0;
+		mag_temp[1] /= 2.0;
+		mag_temp[2] /= 2.0;
+	}
+
+	if (count > 0)
+		readSensorMag(count-1);
 }
 
 /**
@@ -976,9 +1126,11 @@ void stepsAfterConnectWiFi(void) {
 
                 uart_printf("UDP inicializado!\r\n");
 
-                lcd_setCursor(0,0);
-                lcd_write(0);
-                lcd_print(" Iniciado!");
+                if (lcdEnabled) {
+					lcd_setCursor(0,0);
+					lcd_write(0);
+					lcd_print(" Iniciado!");
+                }
 
                 udpInitialized = 1;
             }

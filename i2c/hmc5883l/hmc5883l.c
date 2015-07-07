@@ -84,7 +84,7 @@ void hmc5883_setMeasurement(uint8_t data) {
 /*
  * Ler os dados
  */
-void hmc5883l_read_data(int *mx, int *my, int *mz) {
+void hmc5883l_read_data(int16_t *mx, int16_t *my, int16_t *mz) {
 	uint8_t hmlc5883_RxBuffer[6];
 	twi_master_readRegister(HMC5883L_ADDR, HMC5883L_REG_X_MSB, hmlc5883_RxBuffer, sizeof(hmlc5883_RxBuffer));
 	*mx = hmlc5883_RxBuffer[1] | hmlc5883_RxBuffer[0] <<8;

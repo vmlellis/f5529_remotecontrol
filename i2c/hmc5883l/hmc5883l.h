@@ -70,7 +70,7 @@
 uint8_t hmc5883l_detect(void);
 void hmc5883l_config(void);
 void hmc5883_setMeasurement(uint8_t);
-void hmc5883l_read_data(int*, int*, int*);
+void hmc5883l_read_data(int16_t*, int16_t*, int16_t*);
 //void hmc5883l_read_scalled_data(int*, int*, int*);
 //void hmc5883l_calibrate(void);
 void hmc5883l_setMode(uint8_t);
